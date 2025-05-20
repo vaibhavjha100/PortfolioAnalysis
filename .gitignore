@@ -2,3 +2,6 @@
 .idea/
 *.iml
 *.xml
+
+# Ignore csv files in Tradebooks directory and its subdirectories
+Tradebooks/**/*.csv
