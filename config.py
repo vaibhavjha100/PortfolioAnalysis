@@ -8,6 +8,7 @@ import os
 ROOTDIR = os.path.join(os.path.expanduser("~"), "PycharmProjects", "PortfolioAnalysis")
 RAWDATADIR = os.path.join(ROOTDIR, "Tradebooks", "Raw")
 DATADIR = os.path.join(ROOTDIR, "Tradebooks", "Processed")
+EXCELDIR = os.path.join(ROOTDIR, "Excel")
 
 # Defining formats for different stock brokers
 ZERODHA_FORMAT = ['symbol', 'isin', 'trade_date', 'exchange', 'segment', 'series',
