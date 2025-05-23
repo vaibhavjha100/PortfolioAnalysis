@@ -48,6 +48,7 @@ def check_stockhistory_availability(tickers, start_date=None, end_date=None):
     """
     Function to check if stock hisotry is there for the tickers through excel.
     """
+    vba_injection()
     wb = xw.Book(os.path.join(cfg.EXCELDIR, 'test.xlsm'))
     valid_tickers = []
     invalid_tickers = []
@@ -76,6 +77,47 @@ def check_stockhistory_availability(tickers, start_date=None, end_date=None):
             valid_tickers.append(ticker)
     wb.close()
     return valid_tickers, invalid_tickers
+
+def vba_injection():
+    """
+    Function to inject vba code into the excel file.
+    VBA code is:
+    Sub vba_test()
+        Dim rng As Range
+        Set rng = Range("A1") ' Update this to your target cell
+
+        On Error Resume Next
+        rng.Value = rng.Value ' Re-set value to trigger recognition
+        rng.NumberFormat = "General" ' Avoid formatting issues
+        rng.TextToColumns Destination:=rng ' Force Excel to reevaluate
+        rng.ConvertToLinkedDataType xlLinkedDataTypeSourceAutomatic, "Stocks"
+        On Error GoTo 0
+    End Sub
+    """
+    wb = xw.Book(os.path.join(cfg.EXCELDIR, 'test.xlsm'))
+    sheet = wb.sheets[0]
+    vba_code = """Sub vba_test()
+        Dim rng As Range
+        Set rng = Range("A1") ' Update this to your target cell
+    
+        On Error Resume Next
+        rng.Value = rng.Value ' Re-set value to trigger recognition
+        rng.NumberFormat = "General" ' Avoid formatting issues
+        rng.TextToColumns Destination:=rng ' Force Excel to reevaluate
+        rng.ConvertToLinkedDataType xlLinkedDataTypeSourceAutomatic, "Stocks"
+        On Error GoTo 0
+    End Sub"""
+    try:
+        code_module = wb.api.VBProject.VBComponents("Sheet1").CodeModule
+        code_module.DeleteLines(1, code_module.CountOfLines)
+        code_module.AddFromString(vba_code)
+        wb.save()
+        print("VBA code injected successfully.")
+    except Exception as e:
+        print(f"Error injecting VBA code: {e}")
+    finally:
+        wb.close()
+
 
 def reindex_tradebooks(type):
     """
