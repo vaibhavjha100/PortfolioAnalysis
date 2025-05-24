@@ -49,7 +49,8 @@ def check_stockhistory_availability(tickers, start_date=None, end_date=None):
     Function to check if stock hisotry is there for the tickers through excel.
     """
     vba_injection()
-    wb = xw.Book(os.path.join(cfg.EXCELDIR, 'test.xlsm'))
+    app = xw.App(visible=False)
+    wb = app.books.open(os.path.join(cfg.EXCELDIR, 'test.xlsm'))
     valid_tickers = []
     invalid_tickers = []
     sheet= wb.sheets[0]
@@ -76,6 +77,8 @@ def check_stockhistory_availability(tickers, start_date=None, end_date=None):
         else:
             valid_tickers.append(ticker)
     wb.close()
+    app.quit()
+
     return valid_tickers, invalid_tickers
 
 def vba_injection():
@@ -94,7 +97,8 @@ def vba_injection():
         On Error GoTo 0
     End Sub
     """
-    wb = xw.Book(os.path.join(cfg.EXCELDIR, 'test.xlsm'))
+    app = xw.App(visible=False)
+    wb = app.books.open(os.path.join(cfg.EXCELDIR, 'test.xlsm'))
     sheet = wb.sheets[0]
     vba_code = """Sub vba_test()
         Dim rng As Range
@@ -117,6 +121,7 @@ def vba_injection():
         print(f"Error injecting VBA code: {e}")
     finally:
         wb.close()
+        app.quit()
 
 
 def reindex_tradebooks(type):
