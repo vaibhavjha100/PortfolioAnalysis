@@ -1,5 +1,6 @@
 """
 Configuration file for the project.
+This file contains directory paths and formats for different stock brokers.
 """
 
 import os
