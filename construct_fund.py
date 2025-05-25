@@ -28,6 +28,8 @@ def construct_fund(broker, start_date=None, end_date=date.today()):
     if broker == 'zerodha':
         # Load Zerodha tradebook data
         tf = pd.read_csv(os.path.join(cfg.DATADIR, 'zerodha.csv'))
+        # Set order execution time as index
+        tf.set_index('order_execution_time', inplace=True)
 
         # If start date is not provided, set it to the earliest date in the data
         if start_date is None:
@@ -40,7 +42,8 @@ def construct_fund(broker, start_date=None, end_date=date.today()):
         # starting from the start date to the end date
         # Store in dictionary: stock_data
         stock_data = {}
-        wb = xw.Book(os.path.join(cfg.EXCELDIR, 'test.xlsm'))
+        app = xw.App(visible=False)
+        wb = app.books.open(os.path.join(cfg.EXCELDIR, 'Stockdata.xlsx'))
         sheet = wb.sheets[0]
 
         start_year = start_date.split("-")[0]
@@ -63,6 +66,7 @@ def construct_fund(broker, start_date=None, end_date=date.today()):
             data = sheet.range("A2").expand().options(pd.DataFrame).value
             stock_data[symbol] =data
         wb.close()
+        app.quit()
         # Merge all the dataframes into one with the symbol as the column name
         for symbol, data in stock_data.items():
             data.columns = [symbol]
@@ -73,7 +77,7 @@ def construct_fund(broker, start_date=None, end_date=date.today()):
             if sf.empty:
                 sf = data
             else:
-                sf = pd.merge(pf, data, on='Date', how='outer')
+                sf = pd.merge(sf, data, on='Date', how='outer')
         # Set the date as index
         sf.set_index('Date', inplace=True)
 
@@ -81,81 +85,87 @@ def construct_fund(broker, start_date=None, end_date=date.today()):
         # in the dataframe and set the value to 0
         # column name is column with suffix _weight
         for col in sf.columns:
-            pf[col + '_weight'] = 0
+            sf[col + '_weight'] = np.nan
 
         # Iterate through the df (tradebook) in order to get the weights
         # for each stock on each date
         # If stock is bought then the weight is increased by the quantity
         # If stock is sold then the weight is decreased by the quantity
 
+        for index, row in tf.iterrows():
+            symbol = row['symbol']
+            quantity = row['quantity']
+            date = row['trade_date']
+            if row['trade_type'] == 'buy':
+                sf.loc[date, symbol + '_weight'] += quantity
+            elif row['trade_type'] == 'sell':
+                sf.loc[date, symbol + '_weight'] -= quantity
+        # Fill forward the weights. All the weights are 0 if nothing is filled
+        sf.fillna(method='ffill', inplace=True)
+        # Fill backward to 0
+        sf.fillna(0, inplace=True)
+
+        price_cols = sf.columns[~sf.columns.str.endswith('_weight')]
+        # aum is sumproduct of price and weight for each stock from pf
+        aum = []
+        for date, row in sf.iterrows():
+            aum_value = 0
+            for cols in price_cols:
+                weight_col = cols + '_weight'
+                aum_value += row[cols] * row[weight_col]
+            if aum_value == 0 and len(aum) > 0:
+                aum_value = aum[-1]
+            aum.append(aum_value)
+
+        initial_nav = 100
+        nav = [initial_nav]
+        units = [aum[0] / initial_nav]
+        result = pd.DataFrame({
+            'AUM': aum
+        }, index=sf.index)
+
+        for date, row in sf.iterrows():
+            # Skip the first date as it is the initial date
+            if date == sf.index[0]:
+                result.loc[date, 'Units'] = units[0]
+                result.loc[date, 'NAV'] = result.loc[date, 'AUM'] / units[0]
+                continue
+            prev_units = units[-1]
+            prev_nav = nav[-1]
+            if date in tf['trade_date'].values:
+                if tf.loc[date, 'trade_type'] == 'buy':
+                    units.append(prev_units + (tf.loc[date, 'quantity'] * tf.loc[date, 'price'] / prev_nav))
+                elif tf.loc[date, 'trade_type'] == 'sell':
+                    units.append(prev_units - (tf.loc[date, 'quantity'] * tf.loc[date, 'price'] / prev_nav))
+                else:
+                    units.append(prev_units)
+            # Append AUM/units to nav
+            nav.append(result.loc[date, 'AUM'] / units[-1])
+            # Add NAV and units to result dataframe for this date
+            result.loc[date, 'NAV'] = nav[-1]
+            result.loc[date, 'Units'] = units[-1]
+
+        # Merge the NAV with the stock data
+        pf = pd.merge(result, sf, left_index=True, right_index=True, how='outer')
+
+        return pf
 
 if __name__ == "__main__":
     # Example usage
-    # fund = construct_fund('zerodha', start_date='2021-11-29', end_date='2023-09-11')
-    # print(fund.head())
-    # print(fund.info())
-    tbd = {"date": ["2021-11-29", "2021-11-30", "2021-12-01", "2021-12-02", "2021-12-03"],
-           "symbol": ["AAPL", "MSFT", "AAPL", "AAPL", "MSFT"],
-           "trade_type": ["buy", "buy", "sell", "buy", "sell"],
-           "quantity": [10, 5, 5, 10, 5],
-           "price": [150, 200, 155, 157, 208]}
-    tb = pd.DataFrame(tbd)
-    tb['date'] = pd.to_datetime(tb['date'])
-    tb.set_index('date', inplace=True)
+    fund = construct_fund('zerodha', start_date='2021-11-29', end_date='2023-09-11')
+    # Set display options to show the full DataFrame
+    pd.set_option('display.max_rows', None)  # Show all rows
+    pd.set_option('display.max_columns', None)  # Show all columns
+    pd.set_option('display.width', None)  # Adjust the width to fit the DataFrame
+    pd.set_option('display.max_colwidth', None)  # Show full content of each column
 
-    pfd = {"date": ["2021-11-29", "2021-11-30", "2021-12-01", "2021-12-02", "2021-12-03", "2021-12-04", "2021-12-05"],
-           "AAPL": [150, 155, 160, 155, 145, 147, 150],
-           "MSFT": [200, 205, 210, 205, 210, 220, 230],
-           "AAPL_weight": [10, 10, 5, 15, 15, 15, 15],
-           "MSFT_weight": [0, 5, 5, 5, 0, 0, 0]}
-    pf = pd.DataFrame(pfd)
-    pf['date'] = pd.to_datetime(pf['date'])
-    pf.set_index('date', inplace=True)
+    print(fund)
 
-    # Code Logic
-    price_cols = pf.columns[~pf.columns.str.endswith('_weight')]
-    # aum is sumproduct of price and weight for each stock from pf
-    aum = []
-    for date, row in pf.iterrows():
-        aum_value = 0
-        for cols in price_cols:
-            weight_col = cols + '_weight'
-            aum_value += row[cols] * row[weight_col]
-        aum.append(aum_value)
-
-    initial_nav = 100
-    nav = [initial_nav]
-    units = [aum[0] / initial_nav]
-    result = pd.DataFrame({
-        'AUM': aum
-    }, index=pf.index)
-
-    for date, row in pf.iterrows():
-        # Skip the first date as it is the initial date
-        if date == pf.index[0]:
-            result.loc[date, 'Units'] = units[0]
-            result.loc[date, 'NAV'] = result.loc[date, 'AUM']/ units[0]
-            continue
-        prev_units = units[-1]
-        prev_nav = nav[-1]
-        if date in tb.index:
-            if tb.loc[date, 'trade_type'] == 'buy':
-                units.append(prev_units + (tb.loc[date, 'quantity']*tb.loc[date, 'price'] / prev_nav))
-            elif tb.loc[date, 'trade_type'] == 'sell':
-                units.append(prev_units - (tb.loc[date, 'quantity']*tb.loc[date, 'price'] / prev_nav))
-            else:
-                units.append(prev_units)
-        # Append AUM/units to nav
-        nav.append(result.loc[date, 'AUM'] / units[-1])
-        # Add NAV and units to result dataframe for this date
-        result.loc[date, 'NAV'] = nav[-1]
-        result.loc[date, 'Units'] = units[-1]
-
-    print(result)
-    print(result.info())
-    plt.plot(result['NAV'])
-    plt.title('NAV Over Time')
+    # Plot the NAV
+    plt.figure(figsize=(14, 7))
+    plt.plot(fund.index, fund['NAV'], label='NAV', color='blue')
+    plt.title('Net Asset Value (NAV) Over Time')
     plt.xlabel('Date')
     plt.ylabel('NAV')
+    plt.legend()
     plt.show()
-    # Need to double check the NAV calculation with excel
