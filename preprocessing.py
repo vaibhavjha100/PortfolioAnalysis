@@ -9,23 +9,79 @@ import os
 import config as cfg
 import xlwings as xw
 import time
+import Process_Tradebooks as pt
 
-
-def eligible_securities(type, start_date=None, end_date=None):
+def standardize_tradebook_format(*brokers):
     """
-    Function to get eligible securities based on the type of tradebook.
-    An eligible security is one whose data is available through yfinance.
+    Function to standardize the tradebook format for different brokers.
+    """
+    pt.process_tradebooks()
+    if not brokers:
+        brokers = ("zerodha",)
+    standard_tb = pd.DataFrame(columns=cfg.STANDARD_FORMAT)
+    for broker in brokers:
+        broker = broker.lower()
+        if broker == "zerodha":
+            tb = pd.read_csv(os.path.join(cfg.DATADIR, "zerodha.csv"))
+            # Check if standard dataframe is empty
+            if standard_tb.empty:
+                '''standard_tb['time'] = tb['order_execution_time']
+                standard_tb.set_index('time', inplace=True)
+                standard_tb['date'] = tb['trade_date']
+                standard_tb['ticker'] = tb['symbol']
+                standard_tb['exchange'] = tb['exchange']
+                standard_tb['quantity'] = tb['quantity']
+                standard_tb['price'] = tb['price']'''
+                standard_tb = tb.copy()
+                # Filter for needed columns
+                standard_tb = standard_tb[['order_execution_time', 'trade_date', 'symbol', 'exchange', 'quantity', 'price']]
+                # Rename columns to standard format
+                standard_tb.rename(columns={
+                    'order_execution_time': 'time',
+                    'trade_date': 'date',
+                    'symbol': 'ticker',
+                    'exchange': 'exchange',
+                    'quantity': 'quantity',
+                    'price': 'price'
+                }, inplace=True)
+                standard_tb.set_index('time', inplace=True)
+            else:
+                # Append to the existing standard dataframe
+                temp_tb = pd.DataFrame({
+                    'time': tb['order_execution_time'],
+                    'date': tb['trade_date'],
+                    'ticker': tb['symbol'],
+                    'exchange': tb['exchange'],
+                    'quantity': tb['quantity'],
+                    'price': tb['price']
+                })
+                temp_tb.set_index('time', inplace=True)
+                standard_tb = pd.concat([standard_tb, temp_tb])
+    # Save the standardized tradebook to a CSV file
+    standard_tb.to_csv(os.path.join(cfg.DATADIR, "tradebook.csv"))
+
+
+def eligible_securities(start_date=None, end_date=None):
+    """
+    Function to get eligible securities on the standard tradebook.
+    An eligible security is one whose data is available through yfinance or excel.
     Function returns the tradebook which only contains eligible securities.
     """
-    type = type.lower()
-    if type == "zerodha":
-        tb = pd.read_csv(os.path.join(cfg.DATADIR, "zerodha.csv"))
-        # Filter for eligible securities using check_yf_availability function
-        tickers = tb['symbol'].unique()
-        eligible_tickers, ineligible_tickers = check_stockhistory_availability(tickers, start_date, end_date)
-        tb = tb[tb['symbol'].isin(eligible_tickers)]
-        print(f"The following tickers are excluded from the analysis: {ineligible_tickers}")
-        tb.to_csv(os.path.join(cfg.DATADIR, "zerodha.csv"))
+    tb = pd.read_csv(os.path.join(cfg.DATADIR, "tradebook.csv"))
+    tb.index = pd.to_datetime(tb['time'])
+    tb['date'] = pd.to_datetime(tb['date'])
+    # If start date is not provided, set it to the earliest date in the data
+    if start_date is None:
+        start_date = tb['date'].min().strftime('%Y-%m-%d')
+    # If end date is not provided, set it to today's date
+    if end_date is None:
+        end_date = pd.to_datetime('today').strftime('%Y-%m-%d')
+    # Filter for eligible securities using check_yf_availability function
+    tickers = tb['ticker'].unique()
+    eligible_tickers, ineligible_tickers = check_stockhistory_availability(tickers, start_date, end_date)
+    tb = tb[tb['ticker'].isin(eligible_tickers)]
+    print(f"The following tickers are excluded from the analysis: {ineligible_tickers}")
+    tb.to_csv(os.path.join(cfg.DATADIR, "tradebook.csv"))
 
 def check_yf_availability(tickers):
     """
@@ -123,27 +179,20 @@ def vba_injection():
         wb.close()
         app.quit()
 
-
-def reindex_tradebooks(type):
-    """
-    Fucntion to reindex tradebooks based on order execution time.
-    """
-    type = type.lower()
-    if type == "zerodha":
-        tb = pd.read_csv(os.path.join(cfg.DATADIR, "zerodha.csv"))
-        tb['order_execution_time'] = pd.to_datetime(tb['order_execution_time'])
-        tb.set_index('order_execution_time', inplace=True)
-        tb.sort_index(inplace=True)
-        tb.to_csv(os.path.join(cfg.DATADIR, "zerodha.csv"))
-
-def preprocess_tradebooks(type, start_date=None, end_date=None):
+def preprocess_tradebooks(*brokers, start_date=None, end_date=None):
     """
     Function to preprocess tradebooks based on the type of tradebook.
     This function will call the eligible_securities and reindex_tradebooks functions.
     """
-    eligible_securities(type, start_date, end_date)
-    reindex_tradebooks(type)
+    if not brokers:
+        brokers = ["zerodha"]
+    # Convert brokers to list and lowercase
+    brokers = [broker.lower() for broker in brokers]
+    # Standardize the tradebook format
+    standardize_tradebook_format(*brokers)
+    # Get eligible securities
+    eligible_securities(start_date, end_date)
 
 if __name__ == "__main__":
     pass
-    #preprocess_tradebooks("zerodha")
+    # preprocess_tradebooks("zerodha")
