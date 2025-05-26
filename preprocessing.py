@@ -23,6 +23,8 @@ def standardize_tradebook_format(*brokers):
         broker = broker.lower()
         if broker == "zerodha":
             tb = pd.read_csv(os.path.join(cfg.DATADIR, "zerodha.csv"))
+            # Set the sign of the quantity based on trade type
+            tb['quantity'] = np.where(tb['trade_type'] == 'buy', tb['quantity'], -tb['quantity'])
             # Check if standard dataframe is empty
             if standard_tb.empty:
                 '''standard_tb['time'] = tb['order_execution_time']
@@ -194,5 +196,4 @@ def preprocess_tradebooks(*brokers, start_date=None, end_date=None):
     eligible_securities(start_date, end_date)
 
 if __name__ == "__main__":
-    pass
-    # preprocess_tradebooks("zerodha")
+    preprocess_tradebooks("zerodha")
