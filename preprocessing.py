@@ -192,8 +192,7 @@ def preprocess_tradebooks(*brokers, start_date=None, end_date=None):
     brokers = [broker.lower() for broker in brokers]
     # Standardize the tradebook format
     standardize_tradebook_format(*brokers)
-    # Get eligible securities
-    eligible_securities(start_date, end_date)
 
 if __name__ == "__main__":
-    preprocess_tradebooks("zerodha")
+    pass
+    #preprocess_tradebooks("zerodha")
